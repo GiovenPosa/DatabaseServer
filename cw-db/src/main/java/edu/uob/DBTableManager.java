@@ -117,6 +117,10 @@ public class DBTableManager {
         String operator = matcher.group(2).toUpperCase();
         String columnName = matcher.group(3);
 
+        if (operator.equals("DROP") && columnName.equalsIgnoreCase("id")) {
+            return "[ERROR]: Cannot drop '" + columnName + "' in '" + tableName + "'.";
+        }
+
         File tableFile = new File(destinationPath, fileName);
         List<String> lines;
         try {

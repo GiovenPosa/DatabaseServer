@@ -1,0 +1,4 @@
+Table: dota
+id	name	damage	range
+1	'lina'	 200	 TRUE
+2	'axe'	 300	 FALSE

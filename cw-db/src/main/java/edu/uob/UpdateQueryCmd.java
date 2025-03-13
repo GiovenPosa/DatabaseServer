@@ -2,7 +2,6 @@ package edu.uob;
 
 import java.io.File;
 import java.util.HashMap;
-import java.util.*;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -72,13 +71,25 @@ public class UpdateQueryCmd extends QueryCmdHandler{
             return "[ERROR]: Invalid UPDATE syntax. Use: UPDATE <tableName> SET <updateColumn> = [new_value] WHERE <conditionColumn> <comparator> [condition_value].";
         }
 
-        if (!parseConditionsCommand(command)) {
-            return "[ERROR]: No valid conditions found Use syntax <conditionHeader> <comparator> <newValue> [<condition(s)].";
+        int getIndex = command.toUpperCase().indexOf(" WHERE ");
+        String conditionCmd = command.substring(getIndex + " WHERE ".length()).trim();
+
+        ConditionExpression condition;
+        if (!conditionCmd.isEmpty()) {
+            ConditionParser conditionParser = new ConditionParser(conditionCmd);
+            condition = conditionParser.parseConditionExpression();
+        } else {
+            return "[ERROR]: No conditions provided in UPDATE query.";
         }
 
         Map<String, String> assignments = parseAssignmentsList(assignmentList);
         if (assignments.isEmpty()) {
             return "[ERROR]: No valid assignments found.";
+        }
+        for (String column : assignments.keySet()) {
+            if (column.equalsIgnoreCase("id")) {
+                return "[ERROR]: Cannot update '" + column + "' in table '" + tableName + "'.";
+            }
         }
 
         TableBlock table = getTableBlock(tableName);
@@ -92,11 +103,15 @@ public class UpdateQueryCmd extends QueryCmdHandler{
         String headerLine = table.lines.get(table.headerIndex).trim();
         String[] columns = headerLine.split("\t");
 
+        try {
+            validateCondition(condition, columns);
+        } catch (Exception e) {
+            return e.getMessage();
+        }
+
         Map<String, Integer> targetColumnIndexes;
-        List<Integer> conditionColumnIndexes;
         try {
             targetColumnIndexes = findTargetColumns(columns, assignments, tableName);
-            conditionColumnIndexes = findConditionColumns(columns, conditionsList, tableName);
         } catch (Exception e) {
             return e.getMessage();
         }
@@ -106,32 +121,12 @@ public class UpdateQueryCmd extends QueryCmdHandler{
             String row = table.lines.get(i);
             if (row.trim().isEmpty()) continue;
             String[] rowValues = row.split("\t", - 1);
-            boolean result = false;
-            for (int j = 0; j < conditionsList.size(); j++) {
-                String[] condition = conditionsList.get(j);
-                int colIndex = conditionColumnIndexes.get(j);
-                if (rowValues.length <= colIndex) {
-                    result = false;
-                    break;
-                }
-                String cellValue = rowValues[colIndex].trim();
-                boolean condResult = evaluateCondition(cellValue, condition[2], condition[3]);
-                if (j == 0) {
-                    result = condResult;
-                } else {
-                    if ("AND".equalsIgnoreCase(condition[0])) {
-                        result = result && condResult;
-                    } else if ("OR".equalsIgnoreCase(condition[0])) {
-                        result = result || condResult;
-                    }
-                }
-            }
-
-            if (result) {
+            boolean rowMatches = condition == null || condition.evaluate(rowValues, columns);
+            if (rowMatches) {
                 for (Map.Entry<String, String> entry : assignments.entrySet()) {
-                    String targetCol = entry.getKey();
+                    String targetColumn = entry.getKey();
                     String newValue = entry.getValue();
-                    int targetIndex = targetColumnIndexes.get(targetCol);
+                    int targetIndex = targetColumnIndexes.get(targetColumn);
                     if (rowValues.length > targetIndex) {
                         rowValues[targetIndex] = newValue;
                     }

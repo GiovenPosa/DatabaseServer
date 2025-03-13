@@ -1,67 +1,21 @@
 package edu.uob;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.List;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public abstract class QueryCmdHandler {
     protected final String destinationPath;
     protected final String selectedFile;
-    protected List<String[]> conditionsList;
 
     public QueryCmdHandler(String storageFolderPath, String selectedFile) {
         this.destinationPath = storageFolderPath + File.separator + selectedFile;
         this.selectedFile = selectedFile;
     }
 
-
-
-    protected boolean parseConditionsCommand(String command) {
-        List<String[]> conditions = new ArrayList<>();
-
-        Pattern conditionsPattern = Pattern.compile(
-                "(?:\\s*(AND|OR)\\s+)?(\\w+)\\s*(==|>|<|>=|<=|!=|LIKE)\\s*('[^']*'|\\S+)?", Pattern.CASE_INSENSITIVE);
-        Matcher conditionsMatcher = conditionsPattern.matcher(command);
-        while (conditionsMatcher.find()) {
-            String operator = conditionsMatcher.group(1);
-            String column = conditionsMatcher.group(2);
-            String comparator = conditionsMatcher.group(3);
-            String value = conditionsMatcher.group(4);
-            conditions.add(new String[]{operator, column, comparator, value});
-        }
-        if (conditions.isEmpty()) {
-            return false;
-        }
-        conditionsList = conditions;
-        return true;
-    }
-
-    protected List<Integer> findConditionColumns(String[] columns, List<String[]> conditionsList, String tableName) throws Exception {
-        List<Integer> conditionColumnIndexes = new ArrayList<>();
-        for (String[] condition : conditionsList) {
-            String conditionColumn = condition[1];
-            int index = -1;
-            for (int i = 0; i < columns.length; i++) {
-                if (columns[i].equalsIgnoreCase(conditionColumn)) {
-                    index = i;
-                    break;
-                }
-            }
-            if (index == -1) {
-                throw new Exception("[ERROR]: Condition column " + conditionColumn + " not found in table '" + tableName + "'.");
-            }
-            conditionColumnIndexes.add(index);
-        }
-        return conditionColumnIndexes;
-    }
-
-    protected boolean evaluateCondition(String cellValue, String comparator, String conditionValue) {
+    protected static boolean evaluateCondition(String cellValue, String comparator, String conditionValue) {
         ComparatorType comparatorType;
         try {
             comparatorType = ComparatorType.fromSymbol(comparator);
@@ -93,14 +47,31 @@ public abstract class QueryCmdHandler {
         }
     }
 
+    void validateCondition(ConditionExpression expression, String[] header) throws Exception {
+        if (expression instanceof ConditionLeaf leaf) {
+            boolean isFound = false;
+            for (String column : header) {
+                if (column.equalsIgnoreCase(leaf.column)) {
+                    isFound = true;
+                    break;
+                }
+            }
+            if (!isFound) {
+                throw new Exception("[ERROR]: Condition column '" + leaf.column + "' not found in table.");
+            }
+        } else if (expression instanceof ConditionNode node) {
+            validateCondition(node.left, header);
+            validateCondition(node.right, header);
+        }
+    }
+
     protected String writeLinesToFile(File file, List<String> lines) {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
             for (String line : lines) {
                 writer.write(line);
                 writer.newLine();
             }
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (Exception e) {
             return "[ERROR]: Unable to write updates to the database file.";
         }
         return null;
@@ -154,5 +125,4 @@ public abstract class QueryCmdHandler {
         }
         return new TableBlock(lines, tableStartIndex, tableEndIndex, headerIndex);
     }
-
 }

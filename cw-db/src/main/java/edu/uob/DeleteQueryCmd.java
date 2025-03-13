@@ -29,14 +29,20 @@ public class DeleteQueryCmd extends QueryCmdHandler {
         String whereCmd = command.toUpperCase();
         int getIndex = whereCmd.indexOf(" WHERE ");
         String fromCmd = command.substring(0, getIndex).trim();
-        String conditionsCmd = command.substring(getIndex + " WHERE ".length());
+        String conditionCmd = command.substring(getIndex + " WHERE ".length());
 
         if (!parseTableName(fromCmd)) {
             return "[ERROR]: Invalid SELECT syntax. Use syntax DELETE FROM <tableName>.";
         }
 
-        if (!parseConditionsCommand(conditionsCmd)) {
-            return "[ERROR]: No valid conditions found Use syntax <conditionHeader> <comparator> <newValue> [<condition(s)].";
+        if (conditionCmd.isEmpty()) {
+            return "[ERROR]: No conditions provided in DELETE query.";
+        }
+
+        ConditionParser conditionParser = new ConditionParser(conditionCmd);
+        ConditionExpression condition = conditionParser.parseConditionExpression();
+        if (condition == null) {
+            return "[ERROR]: Failed to parse condition syntax.";
         }
 
         TableBlock table = getTableBlock(tableName);
@@ -50,9 +56,8 @@ public class DeleteQueryCmd extends QueryCmdHandler {
         String headerLine = table.lines.get(table.headerIndex).trim();
         String[] columns = headerLine.split("\t");
 
-        List<Integer> conditionColumnIndexes;
         try {
-            conditionColumnIndexes = findConditionColumns(columns, conditionsList, tableName);
+            validateCondition(condition, columns);
         } catch (Exception e) {
             return e.getMessage();
         }
@@ -70,30 +75,7 @@ public class DeleteQueryCmd extends QueryCmdHandler {
                 continue;
             }
             String[] rowValues = row.split("\t", -1);
-            boolean deletedRow = false;
-            if (conditionsList != null && !conditionsList.isEmpty()) {
-                boolean rowResults = false;
-                for (int j = 0; j < conditionsList.size(); j++) {
-                    String[] condition = conditionsList.get(j);
-                    int columnIndex = conditionColumnIndexes.get(j);
-                    if (rowValues.length <= columnIndex) {
-                        rowResults = false;
-                        break;
-                    }
-                    String cellValue = rowValues[columnIndex].trim();
-                    boolean conditionResult = evaluateCondition(cellValue, condition[2], condition[3]);
-                    if (j == 0) {
-                        rowResults = conditionResult;
-                    } else {
-                        if ("AND".equalsIgnoreCase(condition[0])) {
-                            rowResults = rowResults && conditionResult;
-                        } else if ("OR".equalsIgnoreCase(condition[0])) {
-                            rowResults = rowResults || conditionResult;
-                        }
-                    }
-                }
-                deletedRow = rowResults;
-            }
+            boolean deletedRow = condition.evaluate(rowValues, columns);
             if (deletedRow) {
                 deletedRows++;
             } else {

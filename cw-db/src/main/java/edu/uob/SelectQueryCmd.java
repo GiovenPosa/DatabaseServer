@@ -26,14 +26,13 @@ public class SelectQueryCmd extends QueryCmdHandler{
     }
 
     public String execute(String command) {
-
         String whereCmd = command.toUpperCase();
         String attributeCmd;
-        String conditionsCmd = null;
+        String conditionCmd = null;
         int getIndex = whereCmd.indexOf(" WHERE ");
         if (getIndex != -1) {
             attributeCmd = command.substring(0, getIndex).trim();
-            conditionsCmd = command.substring(getIndex + " WHERE ".length()).trim();
+            conditionCmd = command.substring(getIndex + " WHERE ".length()).trim();
         } else {
             attributeCmd = command.trim();
         }
@@ -42,12 +41,10 @@ public class SelectQueryCmd extends QueryCmdHandler{
             return "[ERROR]: Invalid SELECT syntax. Use: SELECT <columnName(s)> FROM <tableName>.";
         }
 
-        if (conditionsCmd != null && !conditionsCmd.isEmpty()) {
-            if (!parseConditionsCommand(conditionsCmd)) {
-                return "[ERROR]: Invalid condition syntax. Use: WHERE <columnName> <comparator> <newValue> [AND/OR <condition>]";
-            }
-        } else {
-            conditionsList = new ArrayList<>();
+        ConditionExpression condition = null;
+        if (conditionCmd != null && !conditionCmd.isEmpty()) {
+            ConditionParser conditionParser = new ConditionParser(conditionCmd);
+            condition = conditionParser.parseConditionExpression();
         }
 
         TableBlock table = getTableBlock(tableName);
@@ -58,13 +55,10 @@ public class SelectQueryCmd extends QueryCmdHandler{
         String headerLine = table.lines.get(table.headerIndex).trim();
         String[] columns = headerLine.split("\t");
 
-        List<Integer> conditionColumnIndexes = new ArrayList<>();
-        if (!conditionsList.isEmpty()) {
-            try {
-                conditionColumnIndexes = findConditionColumns(columns, conditionsList, tableName);
-            } catch (Exception e) {
-                return e.getMessage();
-            }
+        try {
+            validateCondition(condition, columns);
+        } catch (Exception e) {
+            return e.getMessage();
         }
 
         List<Integer> targetColumnsIndexes = new ArrayList<>();
@@ -109,30 +103,10 @@ public class SelectQueryCmd extends QueryCmdHandler{
             }
             String[] rowValues = rows.split("\t", -1);
             boolean displayRow = true;
-            if (conditionsList != null && !conditionsList.isEmpty()) {
-                boolean rowResults = false;
-                for (int j = 0; j < conditionsList.size(); j++) {
-                    String[] condition = conditionsList.get(j);
-                    int columnIndex = conditionColumnIndexes.get(j);
-                    if (columnIndex == -1 || columnIndex >= rowValues.length) {
-                        rowResults = false;
-                        break;
-                    }
-                    String cellValue = rowValues[columnIndex].trim();
-                    boolean conditionResult = evaluateCondition(cellValue, condition[2], condition[3]);
-                    if (j == 0) {
-                        rowResults = conditionResult;
-                    } else {
-                        if ("AND".equalsIgnoreCase(condition[0])) {
-                            rowResults = rowResults && conditionResult;
-                        } else if ("OR".equalsIgnoreCase(condition[0])) {
-                            rowResults = rowResults || conditionResult;
-                        }
-                    }
-                }
-                displayRow = rowResults;
+            if (condition != null) {
+                String[] header = headerLine.split("\t");
+                displayRow = condition.evaluate(rowValues, header);
             }
-
             if (displayRow) {
                 for (int j = 0; j < targetColumnsIndexes.size(); j++) {
                     int columnIndex = targetColumnsIndexes.get(j);
@@ -148,6 +122,4 @@ public class SelectQueryCmd extends QueryCmdHandler{
         }
         return "[OK] \n" + selectedRows;
     }
-
-
 }
